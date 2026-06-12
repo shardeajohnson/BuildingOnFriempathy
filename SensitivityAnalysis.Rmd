@@ -1,0 +1,315 @@
+date: "2026-1-20"
+output: html_document 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Install packages
+
+```{r cars}
+ 
+#install.packages("pwr")
+
+```
+
+
+#Load packages
+
+```{r cars}
+
+library(pwr)
+ 
+```
+
+
+#Sensitivity analyses for planned mulilevel models (now primary analysis instead of simple reg)
+
+```{r cars}
+ 
+#Sensitivity analysis under plausible assumptions  
+
+# With MLM power, you normally need:
+# ICC, residual variance, random-effects structure, cluster sizes
+#b/c do not have, make and report assumptions based on prior literature:
+# 
+# | Quantity           | Assumption                         |
+# | ------------------ | ---------------------------------- |
+# | ICC (outcome)      | 0.20–0.40 (often ~0.30)            |
+# | Random intercepts  | Yes                                |
+# | Random slopes      | No (unless theoretically required) |
+# | Level-1 predictors | Grand-mean centered                |
+# | Residual SD        | 1 (standardized outcome)           |
+
+#install.packages("lme4")
+#install.packages("simr") 
+library(lme4)
+library(lmerTest)
+library(simr)
+
+#H1: baseline and task FAA and empathic responding 
+
+#since Outcome variance, effect sizes of IVs, and ICC (intra-class correlation, i.e., correlation of repeated measures within participant) not yet known, using value assumptions (suggested by ChatGPT)
+
+# Assumptions
+N <- 53 #106          # number of dyads that we have eeg data for (prior to decision on which files are unusable) - NEEDS TO BE POST DATA FILE EXCLUSION
+m <- 2            # number of participants per dyad
+icc <- 0.3        # assumed ICC
+beta0 <- 0.0      #grand mean intercept
+beta1 <- 0.20 #0.17     # assumed effect for FAA_baseline
+beta2 <- 0.20 #0.08     # assumed effect for FAA_task
+
+##old starting point for beta values came from past literature (e.g., Gutsell & Inzlicht, 2012; Tullett et al., 2012); then I think I adjusted values based on fixed sample size, but with no great intention of whether best to raise or lower. Better approach might be to set all beta values to standardized small effect size and raise in same increments from there which is what I switched to above
+
+##better document where beta values came from
+
+# Compute variance components
+var_u <- icc       # random intercept variance based on assumed icc; between-dyad variance (dyad effect)
+var_e <- 1 - icc   # within-dyad residual variance; individual listener differences
+
+# Create synthetic dataset
+#FIX FOR ALL EXPAND.GRID - generates 106 dyads with 2 people each, resulting in 212 total participants. If you only have 106 participants total, you actually have $106 / 2 = 53 dyads
+dat <- expand.grid( 
+  dyad = factor(1:N),
+  time = 1:m
+)
+
+# Simulate level 1 predictors - individual/session level (standardized)
+#FAA unique to each listener role
+set.seed(123)
+dat$FAA_baseline <- rnorm(nrow(dat)) #varies by ptp
+dat$FAA_task     <- rnorm(nrow(dat))          
+
+# Simulate random intercepts and residuals
+u_dyad <- rnorm(N, 0, sqrt(var_u))
+dat$u  <- u_dyad[dat$dyad]                # Assigns shared dyad noise
+dat$e  <- rnorm(nrow(dat), 0, sqrt(var_e)) # Assigns unique session noise
+
+# Simulate outcome Y
+dat$Y <- beta0 + (beta1 * dat$FAA_baseline) + (beta2 * dat$FAA_task) + dat$u + dat$e
+
+# Fit base model
+mod_resopnsetype <- lmer(Y ~ FAA_baseline + FAA_task + (1 | dyad), data = dat)
+#got an error when I listed random slope as (1 + FAA_baseline + FAA_task| dyad) so leaving as random intercept only for now
+
+summary(mod_resopnsetype)
+
+# Step 3: Run power simulation for one IV at a time (same results should apply for affective emp and distress)
+#beta values should be same to reach desired power but doesn't seem like necessary?
+powerSim(mod_resopnsetype, test=fixed("FAA_baseline", "t"), nsim=500)
+
+powerSim(mod_resopnsetype, test=fixed("FAA_task", "t"), nsim=500)
+
+
+#H2: response types and psychophysiological cost
+
+##physio
+# Assumptions
+N <-  #74 #149 (using 74 as underestimate)          # number of dyads that we have eeg data for (prior to decision on which files are unusable)
+m <- 2            # number of participants per dyad
+icc <- 0.3        # assumed ICC
+beta0 <- 0.0      #grand mean intercept
+beta1 <- #0.09     # assumed effect for cog emp
+beta2 <- #0.20     # assumed effect for affec emp
+beta3 <- #0.26     # assumed effect for distress
+
+# Compute variance components
+var_u <- icc       # random intercept variance based on assumed icc
+var_e <- 1 - icc   # residual variance
+
+# Create synthetic dataset
+dat <- expand.grid(
+  dyad = factor(1:N),
+  time = 1:m
+)
+
+# Simulate predictors (standardized)
+set.seed(123)
+dat$CogEmp <- rnorm(nrow(dat))   # varies by ptp
+dat$AffEmp     <- rnorm(nrow(dat))        
+dat$Distress     <- rnorm(nrow(dat))    
+
+# Simulate random intercepts
+u_dyad <- rnorm(N, 0, sqrt(var_u))
+dat$u  <- u_dyad[dat$dyad]                # Assigns shared dyad noise
+dat$e  <- rnorm(nrow(dat), 0, sqrt(var_e)) # Assigns unique session noise
+
+# Simulate outcome Y
+dat$Y <- beta0 + beta1 * dat$CogEmp + beta2 * dat$AffEmp + beta3 * dat$Distress + dat$u + dat$e
+
+# Fit base model
+mod_physio <- lmer(Y ~ CogEmp + AffEmp + Distress + (1 | dyad), data = dat)
+
+# Step 3: Run power simulation for one IV at a time (same results should apply for affective emp and distress)
+#beta values should be same to reach desired power but doesn't seem like necessary?
+powerSim(mod_physio, test=fixed("CogEmp", "t"), nsim=500)
+
+powerSim(mod_physio, test=fixed("AffEmp", "t"), nsim=500)
+
+powerSim(mod_physio, test=fixed("Distress", "t"), nsim=500)
+
+
+##affect
+
+# Assumptions
+N <-  83 #167 (used 166 b/c even and provides underestimate)          # number of dyads that we have affect data for (prior to decision on which files are unusable)
+m <- 2            # number of participants per dyad
+icc <- 0.3        # assumed ICC
+beta0 <- 0.0      #grand mean intercept
+beta1 <- 0.28 #0.14     # assumed effect for cog emp
+beta2 <- 0.28 #0.15     # assumed effect for affec emp
+beta3 <- 0.28 #0.17     # assumed effect for distress
+
+# Compute variance components
+var_u <- icc       # random intercept variance based on assumed icc
+var_e <- 1 - icc   # residual variance
+
+# Create synthetic dataset
+dat <- expand.grid(
+  dyad = factor(1:N),
+  time = 1:m
+)
+
+# Simulate predictors (standardized)
+set.seed(123)
+dat$CogEmp <- rnorm(nrow(dat))   # varies by ptp
+dat$AffEmp     <- rnorm(nrow(dat))        
+dat$Distress     <- rnorm(nrow(dat))    
+
+# Simulate random intercepts
+u_dyad <- rnorm(N, 0, sqrt(var_u))
+dat$u  <- u_dyad[dat$dyad]                # Assigns shared dyad noise
+dat$e  <- rnorm(nrow(dat), 0, sqrt(var_e)) # Assigns unique session noise
+
+# Simulate outcome Y
+dat$Y <- beta0 + beta1 * dat$CogEmp + beta2 * dat$AffEmp + beta3 * dat$Distress + dat$u + dat$e
+
+# Fit base model
+mod_affect <- lmer(Y ~ CogEmp + AffEmp + Distress + (1 | dyad), data = dat)
+
+# Step 3: Run power simulation for one IV at a time (same results should apply for affective emp and distress)
+#beta values should be same to reach desired power but doesn't seem like necessary?
+powerSim(mod_affect, test=fixed("CogEmp", "t"), nsim=500)
+
+powerSim(mod_affect, test=fixed("AffEmp", "t"), nsim=500)
+
+powerSim(mod_affect, test=fixed("Distress", "t"), nsim=500)
+
+
+
+```
+
+
+#Sensitivity analyses for exploratory and mediation pathways
+
+```{r cars}
+
+#E1
+
+
+#E2
+
+#E3
+
+set.seed(123)
+
+nsim <- 500
+
+# We will track mediation from Task FAA through the 3 empathy frequencies to Y
+sig_med_task_cog <- 0
+sig_med_task_aff <- 0
+sig_med_task_dis <- 0
+
+base_dat <- expand.grid(
+  role = c("Friend_A", "Friend_B"),
+  dyad = factor(1:n_dyads)
+)
+
+# 2. Define Sensitivity Betas
+# Path from Baseline FAA to Task FAA
+beta_base_to_task <- 0.25 
+
+# Paths from FAA Predictors to the Mediators (Frequencies)
+# Driven by BOTH Baseline and Task
+base_to_cog <- 0.15;  task_to_cog <- 0.20
+base_to_aff <- 0.10;  task_to_aff <- 0.22
+base_to_dis <- 0.05;  task_to_dis <- -0.15
+
+# Paths from Mediators to Outcome Y (controlling for everything else)
+b_cog <-  0.25
+b_aff <-  0.20
+b_dis <- -0.18
+
+# Direct effects on Outcome Y
+c_prime_baseline <- 0.10
+c_prime_task     <- 0.12
+
+cat("Running Full System FAA Mediation Power Simulation...\n")
+
+# 3. Monte Carlo Loop
+for(i in 1:nsim) {
+  dat <- base_dat
+  
+  # Dyad random effects (shared friendship variance)
+  u_dyad <- rnorm(n_dyads, 0, sqrt(0.30))
+  
+  # Predictor 1: Baseline FAA
+  dat$FAA_baseline <- rnorm(total_n, 0, 1)
+  
+  # Predictor 2: Task FAA (Partially driven by Baseline)
+  dat$FAA_task <- (beta_base_to_task * dat$FAA_baseline) + u_dyad[dat$dyad] + rnorm(total_n, 0, sqrt(0.70))
+  
+  # Mediators: Frequencies (Driven by BOTH baseline and task)
+  dat$M_cognitive <- (base_to_cog * dat$FAA_baseline) + (task_to_cog * dat$FAA_task) + u_dyad[dat$dyad] + rnorm(total_n, 0, sqrt(0.70))
+  dat$M_affective <- (base_to_aff * dat$FAA_baseline) + (task_to_aff * dat$FAA_task) + u_dyad[dat$dyad] + rnorm(total_n, 0, sqrt(0.70))
+  dat$M_distress  <- (base_to_dis * dat$FAA_baseline) + (task_to_dis * dat$FAA_task) + u_dyad[dat$dyad] + rnorm(total_n, 0, sqrt(0.70))
+  
+  # Outcome Y
+  dat$Y <- (c_prime_baseline * dat$FAA_baseline) + (c_prime_task * dat$FAA_task) +
+           (b_cog * dat$M_cognitive) + (b_aff * dat$M_affective) + (b_dis * dat$M_distress) + 
+           u_dyad[dat$dyad] + rnorm(total_n, 0, sqrt(0.70))
+  
+  # 4. Fit the Full Stepwise Models
+  # Step 1: Predict Mediators using BOTH Baseline and Task FAA
+  m_cog <- lmer(M_cognitive ~ FAA_baseline + FAA_task + (1|dyad), data = dat)
+  m_aff <- lmer(M_affective ~ FAA_baseline + FAA_task + (1|dyad), data = dat)
+  m_dis <- lmer(M_distress  ~ FAA_baseline + FAA_task + (1|dyad), data = dat)
+  
+  # Step 2: Predict Y using everything simultaneously
+  m_y <- lmer(Y ~ FAA_baseline + FAA_task + M_cognitive + M_affective + M_distress + (1|dyad), data = dat)
+  
+  # 5. Extract P-values specifically for the Task FAA -> Frequencies -> Y pathways
+  p_task_to_cog <- summary(m_cog)$coefficients["FAA_task", "Pr(>|t|)"]
+  p_task_to_aff <- summary(m_aff)$coefficients["FAA_task", "Pr(>|t|)"]
+  p_task_to_dis <- summary(m_dis)$coefficients["FAA_task", "Pr(>|t|)"]
+  
+  p_cog_to_y <- summary(m_y)$coefficients["M_cognitive", "Pr(>|t|)"]
+  p_b_aff_to_y <- summary(m_y)$coefficients["M_affective", "Pr(>|t|)"]
+  p_b_dis_to_y <- summary(m_y)$coefficients["M_distress", "Pr(>|t|)"]
+  
+  # 6. Joint Significance Check
+  if(p_task_to_cog < 0.05 && p_cog_to_y < 0.05)   sig_med_task_cog <- sig_med_task_cog + 1
+  if(p_task_to_aff < 0.05 && p_b_aff_to_y < 0.05) sig_med_task_aff <- sig_med_task_aff + 1
+  if(p_task_to_dis < 0.05 && p_b_dis_to_y < 0.05) sig_med_task_dis <- sig_med_task_dis + 1
+}
+
+# 7. Print Power Results
+cat("\n==================================================\n")
+cat("FULL SYSTEM MEDIATION POWER (FROM TASK FAA)\n")
+cat("==================================================\n")
+cat("Power for Task FAA -> Cognitive Freq -> Y:", (sig_med_task_cog / nsim)*100, "%\n")
+cat("Power for Task FAA -> Affective Freq -> Y:", (sig_med_task_aff / nsim)*100, "%\n")
+cat("Power for Task FAA -> Distress Freq -> Y:",  (sig_med_task_dis / nsim)*100, "%\n")
+
+
+
+#E4
+
+#E5
+
+#E6
+
+#E7
+
+```
