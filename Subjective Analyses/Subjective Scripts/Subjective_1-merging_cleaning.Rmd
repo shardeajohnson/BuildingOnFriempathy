@@ -1,7 +1,7 @@
 ---
 title: "Subjective_1-merging_cleaning"
 author: "Sharde Johnson (+ assistance from ChatGPT)"
-date: "2025-11-09"
+date: "`r Sys.Date()`"
 output: html_document
 ---
 
@@ -52,623 +52,126 @@ library(stringr)
 # Clearing environment so code runs fresh
   rm(list=ls())
 
-#versions of surveys have slightly different column formats (e.g., HRV questionnaire only asked after covid restrictions were lifted; presence of in person vs remote variable; position of BDI)
-
-# Read in lifted COVID restrictions subjective questionnaire (i.e., in-person with Zoom or fully remote session choice)
-  #variable "in person" where 1 is in person with Zoom and 2 remote
-  #need to add this variable to original and COVID-restricted questionnaires so can differentiate formats once merged, and make sure a 3rd code for fully in person is added
-choice_survey <- read.csv(here("Subjective Data", "Frienpathy Questionnaire-Full - Revised Fall 2021_Mixed Format.csv"))
-
-# Read in original subjective questionnaire (i.e., in-person study sessions)
-inperson_survey <- read.csv(here("Subjective Data", "Original Frienpathy Questionnaire_In-person.csv"))
-  
-# Read in COVID-restricted subjective questionnaire (i.e., remote study sessions)
-remote_survey <- read.csv(here("Subjective Data", "Frienpathy Questionnaire-Full - Revised Fall 2020_Remote.csv"))
-
-#Read in PANAS from listeners' post-problem conversations
-PANAS_postprob <- read.csv(here("Subjective Data", "Co-rumination Listener-Frienpathy_October 8, 2025_16.21.csv"))
-  #determined that this contains listeners' PANAS post problem conversations by looking at SID 2062a's progression through all surveys; sequential completion was: Neutral.csv, problem.csv, post-rum.csv, co-rum listener.csv (for friend B first), co-rum talker (for friend A second)
-
-#Read in PANAS from listeners' post-neutral conversations
-PANAS_postneut <- read.csv(here("Subjective Data/Frienpathy_ Neutral Interaction_October 8, 2025_16.44.csv"))
-  #SIDs 2001a-2021b missing, so exploratory analysis of post-neutral convo & post-problem convo diff score will use reduced sample
-
+# Read in composite survey data  
+composite_scores <- read.csv(here("Subjective Data", "JW All Friempathy Survey Data.csv")) 
 
 ```
 
-
-## Add in person variable to original and covid-restricted surveys
-
-```{r}
-
-#Add in person variable to original survey
-#coding as 3 to signify fully in person format (rather than in person with Zoom as in choice_survey)
-inperson_survey <- inperson_survey %>%
-  mutate(In.Person. = 3)
-
-#add in person variable to covid-restricted survey
-#2 = fully remote
-remote_survey <- remote_survey %>%
-  mutate(In.Person. = 2)
-
-#Ensure in person variable is numeric for all surveys
-is.numeric(choice_survey$In.Person.) # 1 = in person with zoom  
-is.numeric(inperson_survey$In.Person.)
-is.numeric(remote_survey$In.Person.)
-
-choice_survey$In.Person. <- as.numeric(choice_survey$In.Person.)
-is.numeric(choice_survey$In.Person.)
-
-```
 
 ##Wrangle columns of interest and arrange
 
 ```{r}
 
-#rename variables to be called SID 
-inperson_survey <- inperson_survey %>%
-  rename(SID = RecipientFirstName)
+#rename ID column
+composite_scores <- composite_scores %>%
+  rename(SID = ID)
 
-remote_survey <- remote_survey %>%
-  rename(SID = Q1517)
+#remove Qualtrics metadata from SID column
+composite_scores <- composite_scores[-1, ]
 
-choice_survey <- choice_survey %>%
-  rename(SID = Q1517)
-
-#remove Qualtrics metadata rows from SID columns
-inperson_survey <- inperson_survey[-c(1:7), ]
-
-remote_survey <- remote_survey[-c(1:2), ]
-
-choice_survey <- choice_survey[-c(1:2), ]
-
-PANAS_postprob <- PANAS_postprob[-c(1:6), ] #also remove rows w/ no SID data
-
-PANAS_postneut <- PANAS_postneut[-c(1:3), ]
-
-#check which participants' partners not present in data by creating new variable to note this
-  #create new variable that isolates digit portion of SIDs, i.e., indicates shared dyad ID
-  #for new variable, convert numeric SIDs to character because substr() works on text strings, not numbers
-inperson_survey$dyadID <- substr(as.character(inperson_survey$SID), 1, nchar(as.character(inperson_survey$SID)) - 1) #-1 removes letters from SIDs
-
-remote_survey$dyadID <- substr(as.character(remote_survey$SID), 1, nchar(as.character(remote_survey$SID)) - 1) #-1 removes letters from SIDs
-
-choice_survey$dyadID <- substr(as.character(choice_survey$SID), 1, nchar(as.character(choice_survey$SID)) - 1) #-1 removes letters from SIDs
-
-PANAS_postprob$dyadID <- substr(as.character(PANAS_postprob$SID), 1, nchar(as.character(PANAS_postprob$SID)) - 1) #-1 removes letters from SIDs
-
-PANAS_postneut$dyadID <- substr(as.character(PANAS_postneut$SID), 1, nchar(as.character(PANAS_postneut$SID)) - 1) #-1 removes letters from SIDs
-
-inperson_survey <- inperson_survey %>% #2022a, 2023a, and 2027a missing partners
-  group_by(dyadID) %>%
+#check whether any participants' partners not present in data by creating new variable to note this
+composite_scores <- composite_scores %>% #everyone has a partner  
+  group_by(DyadID) %>%
   mutate(has_partner = n() == 2) %>%
   ungroup()
-
-remote_survey <- remote_survey %>% #there are 2 2057b participants when there should only be one; I think that this was a typo and that the second 2057b ptp (row 43) should actually be 2058b because when you look at the qualtrics metadata for start and end date at the beginning of the data frame, this ptp and 2058a start and end the questionnaire at similar times (just as the first instance of 2057b and 2057a do); therefore, renaming this ptp 2058b
-  group_by(dyadID) %>%
-  mutate(has_partner = n() == 2) %>%
-  ungroup()
-
-#rename duplicate 2057b SID to 2058b
-#first make sure R knows how to differentiate duplicates
-remote_survey$SID <- make.unique(as.character(remote_survey$SID))
-remote_survey$SID <- recode(remote_survey$SID, "2057b.1" = "2058b")   
-
-#confirm remote_survey no longer missing partner data
-remote_survey$dyadID <- substr(as.character(remote_survey$SID), 1, nchar(as.character(remote_survey$SID)) - 1)  
-
-remote_survey <- remote_survey %>%
-  group_by(dyadID) %>%
-  mutate(has_partner = n() == 2) %>%
-  ungroup() #confirmed
-
-
-choice_survey <- choice_survey %>% #2089b (row 59) has duplicate data—looks like 2nd instance should be discarded b/c many missing values and survey unfinished compared to first instance; same issue for 2096b (row 68); remove these duplicates 
-  group_by(dyadID) %>%
-  mutate(has_partner = n() == 2) %>%
-  ungroup()
-
-#remove 2089b and 2096b duplicates
-choice_survey$SID <- make.unique(as.character(choice_survey$SID))
-
-choice_survey <- choice_survey[-c(59, 68), ]
-
-#rename 2096b.1 SID to 2096b
-choice_survey$SID <- recode(choice_survey$SID, "2096b.1" = "2096b")   
-
-#confirm choice_survey no longer has duplicate partner data
-choice_survey$dyadID <- substr(as.character(choice_survey$SID), 1, nchar(as.character(choice_survey$SID)) - 1)  
-
-choice_survey <- choice_survey %>%
-  group_by(dyadID) %>%
-  mutate(has_partner = n() == 2) %>%
-  ungroup() #confirmed
-
-PANAS_postprob <- PANAS_postprob %>%  #3 instances of 2042 and 2040 and 2043 data
-  group_by(dyadID) %>%
-  mutate(has_partner = n() == 2) %>%
-  ungroup() 
-
-#removing third instances of 2042 and 2040 and 2043 data which do not contain values
-PANAS_postprob$SID <- make.unique(as.character(PANAS_postprob$SID))
-
-PANAS_postprob <- PANAS_postprob[-c(84, 85, 92), ]
-
-PANAS_postprob <- PANAS_postprob %>%   
-  group_by(dyadID) %>%
-  mutate(has_partner = n() == 2) %>%
-  ungroup() #confirmed
-
-PANAS_postneut <- PANAS_postneut %>% #2052 missing partner; 3 instances of 2057
-  group_by(dyadID) %>%
-  mutate(has_partner = n() == 2) %>%
-  ungroup() 
-
-#removing third instance of 2057 which does not contain values
-PANAS_postneut$SID <- make.unique(as.character(PANAS_postneut$SID))
-
-PANAS_postneut <- PANAS_postneut[-c(74), ]
-
-#make sure survey versions share column names of interest
-
-#in-person survey has variable labels Q832-Q851 for PANAS items; relabel to match other surveys
-inperson_survey <- inperson_survey %>%
-  rename(PANAS.1 = Q832, PANAS.2 = Q833, PANAS.3 = Q834, PANAS.4 = Q835, PANAS.5 = Q836,
-         PANAS.6 = Q837, PANAS.7 = Q838, PANAS.8 = Q839, PANAS.9 = Q840, PANAS.10 = Q841,
-         PANAS.11 = Q842, PANAS.12 = Q843, PANAS.13 = Q844, PANAS.14 = Q845, PANAS.15 = Q846,
-         PANAS.16 = Q847, PANAS.17 = Q848, PANAS.18 = Q849, PANAS.19 = Q850, PANAS.20 = Q851)
 
 #sample size before participant removal
+print(length(unique(composite_scores$SID)))
 
-print(length(unique(inperson_survey$SID))) #n = 45 (21 dyads + 2022a, 2023a, and 2027a missing partners)
-                      
-print(length(unique(remote_survey$SID))) #n = 50 (25 dyads)             
-                      
-print(length(unique(choice_survey$SID))) #n = 80 (40 dyads)
-
-#total individuals across surveys = 175
-#total dyads across surveys = 86
-
-#remove participants from data due to research team decisions  
-
-#remove 2045a & 2045b: they misunderstood the task
-#remove 2051a & 2051b: couldn't complete study in private space
-remote_survey <- remote_survey[-c(17, 18, 29, 30), ]
-
-#remove 2067a & 2067b: couldn't complete study in private space
-#remove 2096a: recording inaudible so can't use their data  
-#remove 2097b: recording inaudible so can't use their data  
-choice_survey <- choice_survey[-c(11, 12, 69, 72), ]
-
-PANAS_postprob <- PANAS_postprob[-c(88, 89, 100, 101, 132, 133, 191, 192), ]
+#remove participants from data due to original research team decisions  
+composite_scores <- composite_scores[-c(89, 197, 101, 102, 133, 134), ] #these are SIDs 2045a, 2099a, 2051a, 2051b, 2067a, 2067b
 
 #make all SIDs only include lowercase values and ensure no white space
-choice_survey <- choice_survey %>%
-  mutate(SID = str_to_lower(SID),     # lowercase
-         SID = str_trim(SID))         # remove leading/trailing whitespace
-
-remote_survey <- remote_survey %>%
-  mutate(SID = str_to_lower(SID),      
-         SID = str_trim(SID))
-
-inperson_survey <- inperson_survey %>%
+composite_scores <- composite_scores %>%
   mutate(SID = str_to_lower(SID),     
          SID = str_trim(SID))
 
-PANAS_postprob <- PANAS_postprob %>%
-  mutate(SID = str_to_lower(SID),     
-         SID = str_trim(SID))
+#select variables of interest before merge
+composite_scores <- composite_scores[ , -c(12:144, 176:207, 232:560, 625:689, 710:747, 768:823, 832:835, 838:855, 859:864, 867:881, 884:889)]
 
-#select columns of interest from each survey before merge
-
-##inperson_survey: remove columns not of interest  
-inperson_survey <- inperson_survey[ , -c(1:10, 12:18, 20, 26:158, 190:221, 246:464, 465:484, 485:522, 524:525)]
-
-##remote_survey: remove columns not of interest  
-remote_survey <- remote_survey[ , -c(1:17, 19, 21, 27:159, 191:222, 247:591, 592:611, 612:649, 651:652)]
-
-##choice_survey: remove columns not of interest  
-choice_survey <- choice_survey[ , -c(1:17, 19, 21, 28:184, 216:247, 272:616, 617:636, 637:676)]
-
-##PANAS post prob convo: remove columns not of interest  
-PANAS_postprob <- PANAS_postprob[ , -c(1, 39:66)] 
-
-##PANAS post neutral convo: remove columns not of interest  
-PANAS_postneut <- PANAS_postneut[ , -c(1:17, 39:40)]  
-
-#rename demographics columns
-inperson_survey <- inperson_survey %>%
-  rename(Age = Q1, Gender = Q2, GenderText = Q2_.999_TEXT, Ethnicity = Q3, Race = Q4, RaceText = Q4_6_TEXT)
-
-remote_survey <- remote_survey %>%
-  rename(Age = Q1, Gender = Q2, GenderText = Q2_.999_TEXT, Ethnicity = Q3, Race = Q4, RaceText = Q4_6_TEXT)
-
-choice_survey <- choice_survey %>%
-  rename(Age = Q1, Gender = Q2, GenderText = Q2_.999_TEXT, Ethnicity = Q3, Race = Q4, RaceText = Q4_6_TEXT)
-
-#order rows alpha-numerically by SID
-inperson_survey <- inperson_survey %>%
-  mutate(
-    SID_num = as.numeric(str_extract(SID, "^\\d+")), #focuses on numeric part of SID
-    SID_letter = str_extract(SID, "[a-zA-Z]+$") #focuses on letter part of SID
-  ) %>%
-  arrange(SID_num, SID_letter) %>%
-  select(-SID_num, -SID_letter)
-
-remote_survey <- remote_survey %>%
-  mutate(
-    SID_num = as.numeric(str_extract(SID, "^\\d+")), #focuses on numeric part of SID
-    SID_letter = str_extract(SID, "[a-zA-Z]+$") #focuses on letter part of SID
-  ) %>%
-  arrange(SID_num, SID_letter) %>%
-  select(-SID_num, -SID_letter)
-
-choice_survey <- choice_survey %>%
-  mutate(
-    SID_num = as.numeric(str_extract(SID, "^\\d+")), #focuses on numeric part of SID
-    SID_letter = str_extract(SID, "[a-zA-Z]+$") #focuses on letter part of SID
-  ) %>%
-  arrange(SID_num, SID_letter) %>%
-  select(-SID_num, -SID_letter)
-
-PANAS_postprob <- PANAS_postprob %>%
-  mutate(
-    SID_num = as.numeric(str_extract(SID, "^\\d+")), #focuses on numeric part of SID
-    SID_letter = str_extract(SID, "[a-zA-Z]+$") #focuses on letter part of SID
-  ) %>%
-  arrange(SID_num, SID_letter) %>%
-  select(-SID_num, -SID_letter)
-
-PANAS_postneut <- PANAS_postneut %>%
-  mutate(
-    SID_num = as.numeric(str_extract(SID, "^\\d+")), #focuses on numeric part of SID
-    SID_letter = str_extract(SID, "[a-zA-Z]+$") #focuses on letter part of SID
-  ) %>%
-  arrange(SID_num, SID_letter) %>%
-  select(-SID_num, -SID_letter)
-
- 
-```
-
-
-## Merge survey data frames
-
-```{r}
-
-#merge surveys
-combined_survey <- bind_rows(
-  inperson_survey,
-  remote_survey,
-  choice_survey
-)
-
-#merge post prob convo PANAS items with combined survey 
-combined_survey <- combined_survey %>%
-  left_join(PANAS_postprob, by = "SID")  #keep participants with missing PANAS scores
-
-combined_survey <- combined_survey[ , -c(64:79)]  
-
-#merge post neutral convo PANAS items with combined survey for exploratory purposes only
-neut_baseline_combined_survey <- combined_survey %>%
-  left_join(PANAS_postneut, by = "SID")
+#convert those -999 values to NA
+composite_scores[composite_scores == -999] <- NA
 
 ```
 
 
+# Merge Subjective Data with Remaining Modalities: EEG, Behavioral, HRV 
 
-##understand demographics of each survey format (later will be done for combined survey)
-
-```{r}
-
-#final sample sizes
-
-#in person sample size
-print(length(unique(inperson_survey$SID))) #n = 45  
-
-#in person dyads vs individuals missing partners
-ip.dyad_summary <- inperson_survey %>%
-  # Create a New ID by removing the last character (a or b)
-  mutate(DyadID = str_remove(SID, "[ab]$")) %>%
-  group_by(DyadID) %>%
-  summarise(n_partners = n_distinct(SID)) %>%
-  ungroup()
-
-(ip.complete_dyads <- sum(ip.dyad_summary$n_partners == 2)) #21 dyads    
-
-(ip.single_partners <- sum(ip.dyad_summary$n_partners == 1)) #3 individuals (2022a, 2023a, and 2027a) without partners 
-
-#identify SIDs of in person dyads and missing partners
-ip.missing_partners <- inperson_survey %>%
-  mutate(DyadID = str_remove(SID, "[ab]$")) %>%
-  group_by(DyadID) %>%
-  filter(n() == 1) %>%
-  ungroup()
-
-#View the SIDs of in person SIDs missing partners
-print(ip.missing_partners$SID) #2022a, 2023a, and 2027a
-
-
-#remote sample size                   
-print(length(unique(remote_survey$SID))) #n = 46     
-
-#remote dyads vs individuals missing partners
-r.dyad_summary <- remote_survey %>%
-  # Create a New ID by removing the last character (a or b)
-  mutate(DyadID = str_remove(SID, "[ab]$")) %>%
-  group_by(DyadID) %>%
-  summarise(n_partners = n_distinct(SID)) %>%
-  ungroup()
-
-(r.complete_dyads <- sum(r.dyad_summary$n_partners == 2)) #23 dyads    
-
-(r.single_partners <- sum(r.dyad_summary$n_partners == 1)) #0
-
-
-#choice survey sample size
-print(length(unique(choice_survey$SID))) #n = 76  
-
-#choice survey dyads vs individuals missing partners
-c.dyad_summary <- choice_survey %>%
-  # Create a New ID by removing the last character (a or b)
-  mutate(DyadID = str_remove(SID, "[ab]$")) %>%
-  group_by(DyadID) %>%
-  summarise(n_partners = n_distinct(SID)) %>%
-  ungroup()
-
-(c.complete_dyads <- sum(c.dyad_summary$n_partners == 2)) #37 dyads    
-
-(c.single_partners <- sum(c.dyad_summary$n_partners == 1)) #2
-
-#identify SIDs of choice survey dyads and missing partners
-c.missing_partners <- choice_survey %>%
-  mutate(DyadID = str_remove(SID, "[ab]$")) %>%
-  group_by(DyadID) %>%
-  filter(n() == 1) %>%
-  ungroup()
-
-#View the SIDs of choice SIDs missing partners
-print(c.missing_partners$SID) #"2096b" "2097a"
-
-#identify choice survey SIDs who participated in person with Zoom (1) vs fully remotely (2)
-(length(choice_survey$SID[choice_survey$In.Person. == 1])) #34 individuals in person with Zoom
-
-length(choice_survey$SID[choice_survey$In.Person. == 2]) #42 individuals fully remote
-
-
-#based on combined
-dyad_summary <- combined_survey %>%
-  # Create a New ID by removing the last character (a or b)
-  mutate(DyadID = str_remove(SID, "[ab]$")) %>%
-  group_by(DyadID) %>%
-  summarise(n_partners = n_distinct(SID)) %>%
-  ungroup()
-
-#summary of combined survey dyads vs individuals missing partners
-(complete_dyads <- sum(dyad_summary$n_partners == 2)) #81
-
-(single_partners <- sum(dyad_summary$n_partners == 1)) #5
-
-#identify SIDs of combined survey dyads and missing partners
-missing_partners <- combined_survey %>%
-  mutate(DyadID = str_remove(SID, "[ab]$")) %>%
-  group_by(DyadID) %>%
-  filter(n() == 1) %>%
-  ungroup()
-
-#View the SIDs of combined survey SIDs missing partners
-print(missing_partners$SID) #"2022a" "2023a" "2027a" "2096b" "2097a"  
-
-#total individuals across surveys based on combined survey = 167
-
-
-##subjective data sample size = 166 (minus 1 due to 2023a missing in PANAS dataset, reflected once combine surveys)
-  #(includes in person, remote, & all choice survey SIDs)
-print(length(unique(combined_survey$SID)))  
-
-##physio data sample size = 79 
-  #(includes in person & choice survey:in-person SIDs)
-
-#PANAS neutral baseline sample size = 118
-print(length(unique(neut_baseline_combined_survey$SID))) 
-
-#n of in person SIDs = 45
-choice_survey %>%
-  filter(In.Person. == 1) %>%
-  summarise(n = n_distinct(SID)) #n of choice survey:in-person SIDs
-
-45 + 34
-
-#new data frame combining demographic variables 
-  #examined JW's dissertation ch to understand gender and race distributions, concluding that b/c 69.3% identified as women, 28.2% as men, and 2.5% as other, responses coded as -1 should represent women since most frequent; 1 = men; -999 = other
-  #Q2: gender; Q3: ethnicity (1 = Hispanic or Latino; 2 = not); Q4: race (1 = American Indian/Alaskan Native, 2 = Asian, 3 = Native Hawaiian or Other Pacific Islander, 4 = Black or African American, 5 = White, 6 = Other)
-
-table(choice_survey$Q2)
-table(choice_survey$Q4)
-
-cols_desired <- c("SID", "Age", "Gender", "GenderText", "Ethnicity", "Race", "RaceText", "In.Person.")
-
-dems <- rbind(
-  choice_survey[cols_desired],
-  remote_survey[cols_desired],
-  inperson_survey[cols_desired])
-
-# #rename demographic columns in new data frame
-# dems <- dems %>%
-#   rename(Age = Q1, Gender = Q2, GenderText = Q2_.999_TEXT, Ethnicity = Q3, Race = Q4, RaceText = Q4_6_TEXT)
-
-#recode values
-dems <- dems %>%
-  mutate(
-    Gender = recode(Gender, "-1" = "Female", "1" = "Male", "-999" = "Other"),
-    Ethnicity = recode(Ethnicity, "1" = "Hispanic or Latino", "2" = "Not Hispanic or Latino"),
-    Race = recode(Race, "1" = "American Indian/Alaskan Native", "2" = "Asian", "3" = "Native Hawaiian or Other Pacific Islander", "4" = "Black or African American", "5" = "White", "6" = "Other", "1,5" = "American Indian/Alaskan Native and White",  
-                       "2,5" = "Asian and White", "4,5" = "Black or African American and White", "5,6" = "White and Other"),
-    In.Person. = recode(In.Person., "1" = "In-person with Zoom", "2" = "Remote", "3" = "Fully in-person"))
-
-#order rows alpha-numerically by SID
-dems <- dems %>%
-  mutate(
-    SID_num = as.numeric(str_extract(SID, "^\\d+")), #focuses on numeric part of SID
-    SID_letter = str_extract(SID, "[a-zA-Z]+$") #focuses on letter part of SID
-  ) %>%
-  arrange(SID_num, SID_letter) %>%
-  select(-SID_num, -SID_letter)
-
-#counts and percentages for demographics
-
-#age
-is.numeric(dems$Age)
-dems$Age <- as.numeric(dems$Age)
-
-(dems %>%
-  summarize(
-    mean_Age = mean(Age, na.rm = TRUE),
-    sd_Age = sd(Age, na.rm = TRUE),
-    min_Age = min(Age, na.rm = TRUE),
-    max_Age = max(Age, na.rm = TRUE)))
-
-#gender
-(dems %>%
-  group_by(Gender) %>%
-  summarize(
-    n = n(),
-    percent = (n / 167) * 100
-  ))
-
-table(dems$GenderText)
-
-#ethnicity
-(dems %>%
-  group_by(Ethnicity) %>%
-  summarize(
-    n = n(),
-    percent = (n / 167) * 100
-  ))
-
-#race
-(dems %>%
-  group_by(Race) %>%
-  summarize(
-    n = n(),
-    percent = (n / 167) * 100
-  ))
-
-table(dems$RaceText)
-
-#session format
-(dems %>%
-  group_by(In.Person.) %>%
-  summarize(
-    n = n(),
-    percent = (n / 167) * 100
-  ))
-
-```
-
-#Understand what SIDs are shared vs. not across data types: subjective, neural, HR, behavioral
 ``` {r}
 
-# Subjective data
-combinedsurv_SIDs <- as.character(combined_survey$SID)
+#note that due to how r project file paths originally constructed and beginning workflow with subjective data, the subjective data folder will be the working data folder for all data types during wrangling/analysis; any edits made to excel files containing data for analysis needs to be saved as csv copy in subjective data folder
 
-# EEG files: get SIDs from file names
-eeg_files <- list.files("/Volumes/gutsell-lab-1/Sharde_Building on Friempathy/EEG Data/friempathy_EEG_analysis_scripts/friempathydata", full.names = FALSE, recursive = FALSE) #may need to repaste path from server; SIDs are folders not csv files so this is why using recursive
-eeg_SIDs <- str_extract(eeg_files, "^[0-9]+[ab]?") # extracts IDs  
+#read in EEG data
+EEG_data <- read.csv(here("Subjective Data", "All_Conditions_Alpha_Results.csv"))
 
-#dir.exists("/Volumes/gutsell-lab/Sharde_Building on Friempathy/EEG Data/friempathy_EEG_analysis_scripts/friempathydata")
+#read in behavioral data
+Behav_data <- read.csv(here("Subjective Data", "Compiled Response Type Frequencies & Durations.csv"))
 
-# HRV files: get SIDs from file names
-hrv_files <- list.files("/Volumes/gutsell-lab-1/Sharde_Building on Friempathy/HR Analyses/HR Data", pattern = "\\.csv.zip$", full.names = FALSE)
-hrv_SIDs <- str_extract(hrv_files, "^[0-9]+[aAbB]?")
+#remove unnecessary behavioral rows
+Behav_data <- Behav_data[-c(202:998), ]
 
-hrv_SIDs <- tolower(hrv_SIDs)
+#read in HRV data  
+HRV_data <- read.csv(here("Subjective Data", "Friempathy Cleaned RMSSD & HR Values.csv"))
 
-# Read in composite behavioral codes
+#remove unnecessary HRV rows
+HRV_data <- HRV_data[-c(96:199), ]
 
-#behav_data <- 
+#exclude 2006a from HRV data due to being flagged for exclusion during preprocessing
+HRV_data <- HRV_data[-8, ]
 
-#unique SIDs
-combinedsurv_id <- unique(combinedsurv_SIDs)
-eeg_id <- unique(eeg_SIDs)
-hr_id <- unique(hrv_SIDs)
-#behav_id <- unique(behav_SIDs)
+#rename ID variables  
+EEG_data <- EEG_data %>%
+  rename(SID = Subject)
 
+Behav_data <- Behav_data %>%
+  rename(SID = ID)
 
-#see IDs shared vs not in a table
-SID_list <- unique(c(combinedsurv_id, eeg_id, hr_id)) #behav_id
+#merge subjective with remaining modalities 
+All_data <- composite_scores %>%
+  full_join(EEG_data, by = "SID")  #keep participants with missing EEG data 
 
-comparison <- data.frame(
-  SID = SID_list,
-  in_combinedsurv = SID_list %in% combinedsurv_id,
-  in_EEG = SID_list %in% eeg_id,
-  in_HRV = SID_list %in% hr_id)
-  #in_behav = all_SIDs %in% behav_id)
+All_data <- All_data %>%  
+  full_join(Behav_data, by = "SID") #keep participants with missing behavioral data
 
-comparison$SID <- as.character(comparison$SID)
+All_data <- All_data %>%
+  full_join(HRV_data, by = "SID") #keep participants with missing HRV data
 
-comparison
+#remove unnecessary All_data rows
+All_data <- All_data[-c(364:467), ]
 
-comparison <- comparison %>%
-  arrange(
-    as.numeric(gsub("[^0-9]", "", SID)),  # numeric part for ordering
-    SID)                                   # keeps 'a'/'b' suffix order 
+#ensure that participants excluded from study due to team decisions (as reflected in composite_scores above) holds for All_data
+All_data <- All_data[-c(359:363), ]
 
+#rename columns so easier to work with
+All_data <- All_data %>%
+  rename(CognitiveEmpathyDuration_sec = Cognitive.Empathy.Duration..seconds.,
+         CognitiveEmpathyFrequency = Cognitive.Empathy.Frequency,
+         AffectiveEmpathyDuration_sec = Affective.Empathy.Duration..seconds.,
+         AffectiveEmpathyFrequency = Affective.Empathy.Frequency,
+         NesfPersonalDistressDuration_sec = NESF.Personal.Distress.Duration..seconds.,
+         NesfPersonalDistressFrequency = NESF.Personal.Distress.Frequency)
 
-#summarize how many SIDs present per data type
-
-# Select only logical columns (i.e., data type columns)
-logical_cols <- comparison %>% select(-SID)
-
-# Count TRUE per column
-totalSIDs <- colSums(logical_cols) #n for combined is 166 not 167 for some reason
-totalSIDs
-
-#summarize which SIDs missing per data type
-missingSIDs <- lapply(logical_cols, function(x) comparison$SID[!x])
-missingSIDs
-
-length(missingSIDs$in_combinedsurv)
-length(missingSIDs$in_EEG)
-length(missingSIDs$in_HRV)
-
-#summarize SIDs shared across all data formats, as these individuals will be primary analysis (could conduct exploratory analysis for baseline faa-task based faa with eeg data nonwithstanding subjective data if Jenny approves since larger N)
-sharedSIDs_all <- comparison$SID[
-  comparison$in_combinedsurv &
-  comparison$in_EEG &
-  comparison$in_HRV
-]
-
-length(sharedSIDs_all) # n = 70
-
-#shared across subjective and eeg
-sharedSIDs_surveeg <- comparison$SID[
-  comparison$in_combinedsurv &
-  comparison$in_EEG 
-]
-
-length(sharedSIDs_surveeg) # n = 77 (primary analysis- baseline faa-trait empathy)
-
-
-#shared across subjective and hrv
-sharedSIDs_survhrv <- comparison$SID[
-  comparison$in_combinedsurv &
-  comparison$in_HRV 
-]
-
-length(sharedSIDs_survhrv) # n = 70 (not primary analysis)
-
-
-#eeg-behav data is primary analysis
-
-#hrv-behav data is primary analysis
-
-
-
-
+All_data <- All_data %>%
+  rename(SegmentBeatsCorrected = Segment.Beats.Corrected,
+         BeatCorrectionThreshold = Beat.Correction.Threshold,
+         RMSSD_ms = Segment.Mean.RMSSD..ms.,
+         HR = Segment.Mean.HR..bpm.,
+         TotalRecordingBeatsCorrected = Total.Recording.Beats.Corrected,
+         TotalRecordingBeatCorrectionRate = Total.Recording.Beat.Correction.Rate....,
+         Comments = Comments..e.g...exclusion.)
 
 ```
 
 
-# Add Getting a sense of the data steps here and visualizing distributions etc. 
+# Save File
+
+```{r}
+
+#Save RDS file to be used for analysis
+saveRDS(All_data, here::here("Subjective Data", "All_data_1-Cleaned_Data.rds"))
+
+```
+
+
 
 
